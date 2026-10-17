@@ -1,0 +1,48 @@
+name: build-hermes-offline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest    # 原生 x86_64，无 QEMU
+    steps:
+      - name: 检查系统依赖
+        run: |
+          sudo apt-get update -yqq
+          sudo apt-get install -yqq git curl ca-certificates xz-utils build-essential libatomic1
+
+      - name: 安装 Hermes 运行时（离线内容）
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD="$RUNNER_TEMP/build"
+          export PKGHOME="$BUILD/pkghome"   # 对应 NAS 的 TRIM_PKGHOME（应用 HOME）
+          export PKGVAR="$BUILD/pkgvar"     # 对应 NAS 的 TRIM_PKGVAR（@appdata 持久数据）
+          mkdir -p "$PKGHOME" "$PKGVAR"
+
+          curl -fsSL https://hermes-agent.nousresearch.com/install.sh -o "$BUILD/install.sh"
+
+          HOME="$PKGHOME" HERMES_HOME="$PKGVAR" \
+            bash "$BUILD/install.sh" --non-interactive --skip-browser --skip-computer-use </dev/null
+
+          # 校验 hermes CLI 可用（能打印版本即说明 Python/Node 运行时完整）
+          HOME="$PKGHOME" HERMES_HOME="$PKGVAR" \
+            PATH="$PKGHOME/.local/bin:$PATH" hermes --version
+
+      - name: 打包离线运行时
+        shell: bash
+        run: |
+          set -euo pipefail
+          BUILD="$RUNNER_TEMP/build"
+          tar -czf hermes-offline-x86_64.tar.gz -C "$BUILD" pkghome pkgvar
+          ls -lh hermes-offline-x86_64.tar.gz
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: hermes-offline-x86_64
+          path: hermes-offline-x86_64.tar.gz
+          if-no-files-found: error
